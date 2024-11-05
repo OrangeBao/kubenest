@@ -1,0 +1,127 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.actor }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-22.04
+#    runs-on: [self-hosted, ecs]
+    if: ${{ always() }}
+    env:
+      #GOPATH: ${{ github.workspace }}
+      WORKSPACE: ${{ github.workspace }}/src/github.com/kosmos-io/kubenest
+#      GOPROXY: "https://goproxy.cn,direct"
+    defaults:
+      run:
+        working-directory: ${{ env.WORKSPACE }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          path: ${{ env.WORKSPACE }}
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+      - name: Set up GOPROXY for Go
+        run: go env -w GOPROXY=https://goproxy.cn,direct
+      - name: lint
+        run: hack/verify-staticcheck.sh
+      - name: vendor
+        run: hack/verify-vendor.sh
+      - name: codegen
+        run: hack/verify-codegen.sh
+      - name: crds
+        run: hack/verify-crds.sh
+  build:
+    name: build
+    needs: verify
+    runs-on: [self-hosted, ecs]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          # https://github.com/actions/checkout#fetch-all-history-for-all-tags-and-branches
+          fetch-depth: 0
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+      - name: Compile
+        run: make all
+  test:
+    name: Unit test
+    needs: build
+    runs-on: [self-hosted, ecs]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+      - run: make test
+  e2e:
+    name: E2e test
+    needs: build
+    env:
+      GOPROXY: "https://goproxy.cn,direct"
+    runs-on: [self-hosted, ecs]
+    strategy:
+      fail-fast: false
+      matrix:
+        # Here support the latest three minor releases of Kubernetes, this can be considered to be roughly
+        # the same as the End of Life of the Kubernetes release: https://kubernetes.io/releases/
+        # Please remember to update the CI Schedule Workflow when we add a new version.
+        k8s: [ v1.27.2, v1.28.0, v1.29.0 ]
+    steps:
+      # Free up disk space on Ubuntu
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # this might remove tools that are actually needed, if set to "true" but frees about 6 GB
+          tool-cache: false
+          # all of these default to true, but feel free to set to "false" if necessary for your workflow
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+      - name: Clear e2e env
+        env:
+          KIND_IMAGE: kindest/node:${{ matrix.k8s }}
+        run:  hack/local-cleanup-kubenest.sh
+      - name: Prepare e2e env
+        env:
+          KIND_IMAGE: kindest/node:${{ matrix.k8s }}
+        run:  hack/local-up-kubenest.sh
+      - name: Run e2e test
+        env:
+          ARTIFACTS_PATH: ${{ github.workspace }}/e2e-test/${{ matrix.k8s }}/
+        run: hack/rune2e.sh
+      - name: Upload logs
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: kubenest-e2e-logs-${{ github.run_id }}_${{ matrix.k8s }}
+          path: ${{ github.workspace }}/e2e-test/${{ matrix.k8s }}/
+      - name: upload environments logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: kubenest_environments_log_${{ matrix.k8s }}
+          path: ${{ github.workspace }}/environments

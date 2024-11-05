@@ -1,0 +1,16 @@
+[Unit]
+Description=K8s in K8s Node Agent Service
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/srv/node-agent
+EnvironmentFile=-/srv/node-agent/agent.env
+Environment="TMPDIR=/srv/node-agent"
+ExecStart=/srv/node-agent/node-agent serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

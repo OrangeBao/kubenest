@@ -1,0 +1,41 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+_tmp/
+_output/
+
+.idea/
+.vscode/
+
+# OSX trash
+.DS_Store
+.kube
+apiserver.local.config/
+environments/**
+
+e2e-logs
+
+_delete/
+
+kube-config
+
+__debug_bin*
+
+ignore_dir
+cmd/kubenest/node-agent/app.log
+cmd/kubenest/node-agent/cert.pem
+cmd/kubenest/node-agent/key.pem
+cmd/kubenest/node-agent/agent.env
+hack/k8s-in-k8s/nodes.txt
+develop
+
+cmd/kubenest/node-agent/app/client/app.log
