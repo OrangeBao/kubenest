@@ -22,13 +22,11 @@ import (
 	"os"
 
 	"github.com/gorilla/websocket"
-
-	"github.com/kosmos.io/kubenest/pkg/handlers/common"
 )
 
 func NewPythonHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		common.HandleWebSocketUpgrade(w, r, func(conn *websocket.Conn, values url.Values) {
+		HandleWebSocketUpgrade(w, r, func(conn *websocket.Conn, values url.Values) {
 			handleScript(conn, values, []string{"python3", "-u"})
 		})
 	})
@@ -42,35 +40,35 @@ func handleScript(conn *websocket.Conn, params url.Values, command []string) {
 	// Write data to a temporary file
 	tempFile, err := os.CreateTemp("", "script_*")
 	if err != nil {
-		common.LOG.Errorf("Error creating temporary file: %v", err)
+		LOG.Errorf("Error creating temporary file: %v", err)
 		return
 	}
 	defer os.Remove(tempFile.Name()) // Clean up temporary file
 	defer tempFile.Close()
 	tempFilefp, err := os.OpenFile(tempFile.Name(), os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		common.LOG.Errorf("Error opening temporary file: %v", err)
+		LOG.Errorf("Error opening temporary file: %v", err)
 	}
 	for {
 		// Read message from WebSocket client
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			common.LOG.Errorf("failed to read message : %s", err)
+			LOG.Errorf("failed to read message : %s", err)
 			break
 		}
 		if string(data) == "EOF" {
-			common.LOG.Infof("finish file data transfer %s", tempFile.Name())
+			LOG.Infof("finish file data transfer %s", tempFile.Name())
 			break
 		}
 
 		// Write received data to the temporary file
 		if _, err := tempFilefp.Write(data); err != nil {
-			common.LOG.Errorf("Error writing data to temporary file: %v", err)
+			LOG.Errorf("Error writing data to temporary file: %v", err)
 			continue
 		}
 	}
 	executeCmd := append(command, tempFile.Name())
 	executeCmd = append(executeCmd, args...)
 	// Execute the Python script
-	common.Cmd(conn, executeCmd[0], executeCmd[1:])
+	Cmd(conn, executeCmd[0], executeCmd[1:])
 }

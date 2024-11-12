@@ -23,32 +23,30 @@ import (
 	"net/url"
 
 	"github.com/gorilla/websocket"
-
-	"github.com/kosmos.io/kubenest/pkg/handlers/common"
 )
 
-func NewCheckHandler() http.Handler {
+func NewCheckPortHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		common.HandleWebSocketUpgrade(w, r, handleCheck)
+		HandleWebSocketUpgrade(w, r, handleCheckPort)
 	})
 }
 
-func handleCheck(conn *websocket.Conn, params url.Values) {
+func handleCheckPort(conn *websocket.Conn, params url.Values) {
 	port := params.Get("port")
 	if len(port) == 0 {
-		common.LOG.Errorf("port is required")
+		LOG.Errorf("port is required")
 		return
 	}
-	common.LOG.Infof("Check port %s", port)
+	LOG.Infof("Check port %s", port)
 	address := fmt.Sprintf(":%s", port)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		common.LOG.Infof("port not avalible %s %v", address, err)
+		LOG.Infof("port not avalible %s %v", address, err)
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, fmt.Sprintf("%d", 1)))
 		return
 	}
 	defer listener.Close()
-	common.LOG.Infof("port avalible %s", address)
+	LOG.Infof("port avalible %s", address)
 	// _ = conn.WriteMessage(websocket.BinaryMessage, []byte("0"))
 	_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, fmt.Sprintf("%d", 0)))
 }
