@@ -21,13 +21,11 @@ import (
 	"net/url"
 
 	"github.com/gorilla/websocket"
-
-	"github.com/kosmos.io/kubenest/pkg/handlers/common"
 )
 
 func NewShellHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		common.HandleWebSocketUpgrade(w, r, func(conn *websocket.Conn, values url.Values) {
+		HandleWebSocketUpgrade(w, r, func(conn *websocket.Conn, values url.Values) {
 			handleScript(conn, values, []string{"sh"})
 		})
 	})

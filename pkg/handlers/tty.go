@@ -26,27 +26,25 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
-
-	"github.com/kosmos.io/kubenest/pkg/handlers/common"
 )
 
 func NewTTYHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		common.HandleWebSocketUpgrade(w, r, handleTty)
+		HandleWebSocketUpgrade(w, r, handleTty)
 	})
 }
 
 func handleTty(conn *websocket.Conn, queryParams url.Values) {
 	entrypoint := queryParams.Get("command")
 	if len(entrypoint) == 0 {
-		common.LOG.Errorf("command is required")
+		LOG.Errorf("command is required")
 		return
 	}
-	common.LOG.Infof("Executing command %s", entrypoint)
+	LOG.Infof("Executing command %s", entrypoint)
 	cmd := exec.Command(entrypoint)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		common.LOG.Errorf("failed to start command %v", err)
+		LOG.Errorf("failed to start command %v", err)
 		return
 	}
 	defer func() {
@@ -57,7 +55,7 @@ func handleTty(conn *websocket.Conn, queryParams url.Values) {
 	go func() {
 		for range ch {
 			if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
-				common.LOG.Errorf("error resizing pty: %s", err)
+				LOG.Errorf("error resizing pty: %s", err)
 			}
 		}
 	}()
@@ -70,12 +68,12 @@ func handleTty(conn *websocket.Conn, queryParams url.Values) {
 		for {
 			n, err := ptmx.Read(buf)
 			if err != nil {
-				common.LOG.Errorf("PTY read error: %v", err)
+				LOG.Errorf("PTY read error: %v", err)
 				break
 			}
-			common.LOG.Printf("Received message: %s", buf[:n])
+			LOG.Printf("Received message: %s", buf[:n])
 			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-				common.LOG.Errorf("WebSocket write error: %v", err)
+				LOG.Errorf("WebSocket write error: %v", err)
 				break
 			}
 		}
@@ -101,12 +99,12 @@ func handleTty(conn *websocket.Conn, queryParams url.Values) {
 		for {
 			_, message, err := conn.ReadMessage()
 			if err != nil {
-				common.LOG.Printf("read from websocket failed: %v, %s", err, string(message))
+				LOG.Printf("read from websocket failed: %v, %s", err, string(message))
 				break
 			}
-			common.LOG.Printf("Received message: %s", message) // Debugging line
-			if _, err := ptmx.Write(message); err != nil {     // Ensure newline character for commands
-				common.LOG.Printf("PTY write error: %v", err)
+			LOG.Printf("Received message: %s", message)    // Debugging line
+			if _, err := ptmx.Write(message); err != nil { // Ensure newline character for commands
+				LOG.Printf("PTY write error: %v", err)
 				break
 			}
 		}

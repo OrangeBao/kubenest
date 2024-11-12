@@ -21,13 +21,11 @@ import (
 	"net/url"
 
 	"github.com/gorilla/websocket"
-
-	"github.com/kosmos.io/kubenest/pkg/handlers/common"
 )
 
 func NewCmdHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		common.HandleWebSocketUpgrade(w, r, handleCmd)
+		HandleWebSocketUpgrade(w, r, handleCmd)
 	})
 }
 
@@ -51,9 +49,9 @@ func handleCmd(conn *websocket.Conn, params url.Values) {
 	args := params["args"]
 	// if the command is file, the file should have execute permission
 	if command == "" {
-		common.LOG.Warnf("No command specified %v", params)
+		LOG.Warnf("No command specified %v", params)
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("No command specified"))
 		return
 	}
-	common.Cmd(conn, command, args)
+	Cmd(conn, command, args)
 }

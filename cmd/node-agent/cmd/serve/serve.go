@@ -64,7 +64,7 @@ func start(addr, certFile, keyFile, user, password string) error {
 	mux.Handle("/py", auth.NewAuthHandler(handlers.NewPythonHandler(), user, password))
 	mux.Handle("/sh", auth.NewAuthHandler(handlers.NewShellHandler(), user, password))
 	mux.Handle("/tty", auth.NewAuthHandler(handlers.NewTTYHandler(), user, password))
-	mux.Handle("/check", auth.NewAuthHandler(handlers.NewCheckHandler(), user, password))
+	mux.Handle("/check", auth.NewAuthHandler(handlers.NewCheckPortHandler(), user, password))
 
 	// Health check and readiness routes don't require auth.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
