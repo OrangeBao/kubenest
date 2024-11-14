@@ -3,19 +3,22 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 CURRENT="$(dirname "${BASH_SOURCE[0]}")"
 ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 # true: when cluster is exist, reuse exist one!
 REUSE=${REUSE:-false}
+# Set to false in a restricted internet environment.
+USE_LOCAL_ARTIFACTS=${USE_LOCAL_ARTIFACTS:-true}
 VERSION=${VERSION:-latest}
 
 CN_ZONE=${CN_ZONE:-true}
 source "$(dirname "${BASH_SOURCE[0]}")/util.sh"
 
 # default cert and key for node server https
-CERT=$(util::get_base64_kubeconfig ${ROOT}/pkg/cert/crt.pem)
-KEY=$(util::get_base64_kubeconfig ${ROOT}/pkg/cert/crt.pem)
+#CERT=$(util::get_base64_kubeconfig ${ROOT}/pkg/cert/crt.pem)
+#KEY=$(util::get_base64_kubeconfig ${ROOT}/pkg/cert/crt.pem)
 
 if [ $REUSE == true ]; then
   echo "!!!!!!!!!!!Warning: Setting REUSE to true will not delete existing clusters.!!!!!!!!!!!"
@@ -33,7 +36,7 @@ function prepare_test_image() {
     docker pull percona:5.7
     docker pull prom/mysqld-exporter:v0.13.0
   else
-#    todo add bitpoke to m.daocloud.io's Whitelist
+    #    todo add bitpoke to m.daocloud.io's Whitelist
     docker pull bitpoke/mysql-operator-orchestrator:v0.6.3
     docker pull bitpoke/mysql-operator:v0.6.3
     docker pull bitpoke/mysql-operator-sidecar-5.7:v0.6.3
@@ -49,6 +52,22 @@ function prepare_test_image() {
     docker tag docker.m.daocloud.io/prom/mysqld-exporter:v0.13.0 prom/mysqld-exporter:v0.13.0
   fi
 }
+
+## create a docker registry for kind
+#function create_docker_registry() {
+#  if [ "${USE_LOCAL_ARTIFACTS}" == true ]; then
+#    docker network create kind
+#    if [ "${CN_ZONE}" == false ]; then
+#      docker run -d --network host --restart=always --name registry registry:2
+#    else
+#      docker run -d --network host --restart=always --name registry m.daocloud.io/docker.io/registry:2
+#    fi
+#    docker network create kind
+#    docker network connect kind registry
+#  else
+#    echo "Do nothing because USE_LOCAL_ARTIFACTS is false"
+#  fi
+#}
 
 # prepare e2e cluster
 function prepare_e2e_cluster() {
@@ -85,40 +104,41 @@ function prepare_e2e_cluster() {
     300
 }
 
-# prepare docker image
 function prepare_docker_image() {
-  if [ "${CN_ZONE}" == false ]; then
-    # pull calico image
-    docker pull calico/apiserver:v3.25.0
-    docker pull calico/cni:v3.25.0
-    docker pull calico/csi:v3.25.0
-    docker pull calico/kube-controllers:v3.25.0
-    docker pull calico/node-driver-registrar:v3.25.0
-    docker pull calico/node:v3.25.0
-    docker pull calico/pod2daemon-flexvol:v3.25.0
-    docker pull calico/typha:v3.25.0
-    docker pull quay.io/tigera/operator:v1.29.0
-  else
-    docker pull quay.m.daocloud.io/tigera/operator:v1.29.0
-    docker pull docker.m.daocloud.io/calico/apiserver:v3.25.0
-    docker pull docker.m.daocloud.io/calico/cni:v3.25.0
-    docker pull docker.m.daocloud.io/calico/csi:v3.25.0
-    docker pull docker.m.daocloud.io/calico/kube-controllers:v3.25.0
-    docker pull docker.m.daocloud.io/calico/node-driver-registrar:v3.25.0
-    docker pull docker.m.daocloud.io/calico/node:v3.25.0
-    docker pull docker.m.daocloud.io/calico/pod2daemon-flexvol:v3.25.0
-    docker pull docker.m.daocloud.io/calico/typha:v3.25.0
+  # 定义 Calico 镜像的基础名称和版本
+  local calico_images=(
+    "calico/apiserver"
+    "calico/cni"
+    "calico/csi"
+    "calico/kube-controllers"
+    "calico/node-driver-registrar"
+    "calico/node"
+    "calico/pod2daemon-flexvol"
+    "calico/typha"
+  )
+  local operator_image="tigera/operator"
+  local version="v3.25.0"
+  local operator_version="v1.29.0"
 
-    docker tag quay.m.daocloud.io/tigera/operator:v1.29.0 quay.io/tigera/operator:v1.29.0
-    docker tag docker.m.daocloud.io/calico/apiserver:v3.25.0 calico/apiserver:v3.25.0
-    docker tag docker.m.daocloud.io/calico/cni:v3.25.0 calico/cni:v3.25.0
-    docker tag docker.m.daocloud.io/calico/csi:v3.25.0 calico/csi:v3.25.0
-    docker tag docker.m.daocloud.io/calico/kube-controllers:v3.25.0 calico/kube-controllers:v3.25.0
-    docker tag docker.m.daocloud.io/calico/node-driver-registrar:v3.25.0 calico/node-driver-registrar:v3.25.0
-    docker tag docker.m.daocloud.io/calico/node:v3.25.0 calico/node:v3.25.0
-    docker tag docker.m.daocloud.io/calico/pod2daemon-flexvol:v3.25.0 calico/pod2daemon-flexvol:v3.25.0
-    docker tag docker.m.daocloud.io/calico/typha:v3.25.0 calico/typha:v3.25.0
+  if [ "${CN_ZONE}" == false ]; then
+    # 使用 Calico 的官方镜像源
+    local calico_prefix="calico"
+    local operator_prefix="quay.io"
+  else
+    # 使用 DaoCloud 镜像源
+    calico_prefix="docker.m.daocloud.io"
+    operator_prefix="quay.m.daocloud.io"
   fi
+
+  # 拉取和标记 Calico 镜像
+  for image in "${calico_images[@]}"; do
+    docker pull "${calico_prefix}/${image}:${version}"
+    docker tag "${calico_prefix}/${image}:${version}" "${image}:${version}"
+  done
+
+  # 拉取和标记 Operator 镜像
+  docker pull "${operator_prefix}/${operator_image}:${operator_version}"
+  docker tag "${operator_prefix}/${operator_image}:${operator_version}" "${operator_image}:${operator_version}"
 }
 
 #clustername podcidr servicecidr
@@ -129,15 +149,7 @@ function create_cluster() {
   local -r podcidr=$4
   local -r servicecidr=$5
   local -r isDual=${6:-false}
-  local -r multiNodes=${7:-false}
-
-  local KIND_CONFIG_NAME
-
-  if [ "${multiNodes}" == true ]; then
-      KIND_CONFIG_NAME="kubenest_kindconfig"
-  else
-      KIND_CONFIG_NAME="kindconfig"
-  fi
+  local KIND_CONFIG_NAME="kindconfig"
 
   CLUSTER_DIR="${ROOT}/environments/${clustername}"
   mkdir -p "${CLUSTER_DIR}"
@@ -168,6 +180,7 @@ function create_cluster() {
     echo "create cluster ${clustername} with kind image ${KIND_IMAGE}"
     kind create cluster --name "${clustername}" --config "${CLUSTER_DIR}/${KIND_CONFIG_NAME}" --image "${KIND_IMAGE}"
   fi
+
   # load docker image to kind cluster
   kind load docker-image calico/apiserver:v3.25.0 --name $clustername
   kind load docker-image calico/cni:v3.25.0 --name $clustername
@@ -187,7 +200,13 @@ function create_cluster() {
   echo "get docker ip from pod $dockerip"
   docker exec ${clustername}-control-plane /bin/sh -c "cat /etc/kubernetes/admin.conf" | sed -e "s|${clustername}-control-plane|$dockerip|g" -e "/certificate-authority-data:/d" -e "5s/^/    insecure-skip-tls-verify: true\n/" -e "w ${CLUSTER_DIR}/kubeconfig-nodeIp"
 
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig create -f "$CURRENT/calicooperator/tigera-operator.yaml" || $("${REUSE}" -eq "true")
+  # 本地测试环境使用本地制品库，github ci 环境直接使用公网的镜像和yaml
+  if [ "${USE_LOCAL_ARTIFACTS}" == true ]; then
+    kubectl --kubeconfig $CLUSTER_DIR/kubeconfig create -f "${CURRENT}/artifacts/calicooperator/tigera-operator.yaml" || $("${REUSE}" -eq "true")
+  else
+    kubectl --kubeconfig $CLUSTER_DIR/kubeconfig create -f "https://raw.githubusercontent.com/projectcalico/calico/master/manifests/tigera-operator.yaml" || $("${REUSE}" -eq "true")
+  fi
+
   kind export kubeconfig --name "$clustername"
   util::wait_for_crd installations.operator.tigera.io
   kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "${CLUSTER_DIR}"/calicoconfig
@@ -324,7 +343,7 @@ function load_cluster_images() {
 function load_kubenetst_cluster_images() {
   local -r clustername=$1
 
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/virtual-cluster-operator:"${VERSION}"
+  #  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/virtual-cluster-operator:"${VERSION}"
   kind load docker-image -n "$clustername" ghcr.io/kosmos-io/node-agent:"${VERSION}"
 }
 

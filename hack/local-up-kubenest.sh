@@ -3,11 +3,13 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
+
 
 
 function usage() {
     echo "Usage:"
-    echo "    hack/local-up-kosmos.sh [HOST_IPADDRESS] [-h]"
+    echo "    hack/local-up-kubenest.sh [HOST_IPADDRESS] [-h]"
     echo "Args:"
     echo "    HOST_IPADDRESS: (required) if you want to export clusters' API server port to specific IP address"
     echo "    h: print help information"
@@ -26,15 +28,14 @@ while getopts 'h' OPT; do
     esac
 done
 
-
 KUBECONFIG_PATH=${KUBECONFIG_PATH:-"${HOME}/.kube"}
 export KUBECONFIG=$KUBECONFIG_PATH/"config"
 
-KIND_IMAGE=${KIND_IMAGE:-"kindest/node:v1.27.2"}
+KIND_IMAGE=${KIND_IMAGE:-"m.daocloud.io/docker.io/kindest/node:v1.27.2"}
 HOST_IPADDRESS=${1:-}
 KUBE_NEST_CLUSTER_NAME="kubenest-cluster"
-HOST_CLUSTER_POD_CIDR="10.233.64.0/18"
-HOST_CLUSTER_SERVICE_CIDR="10.233.0.0/18"
+CLUSTER_POD_CIDR="10.233.64.0/18"
+CLUSTER_SERVICE_CIDR="10.233.0.0/18"
 
 REPO_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 VERSION=${VERSION:-"latest"}
@@ -50,14 +51,15 @@ if [[ -z "${HOST_IPADDRESS}" ]]; then
 fi
 make images GOOS="linux" VERSION="$VERSION" --directory="${REPO_ROOT}"
 
-make kosmosctl
 os=$(go env GOOS)
 arch=$(go env GOARCH)
 export PATH=$PATH:"${REPO_ROOT}"/_output/bin/"$os"/"$arch"
 
-# prepare docker image
+# prepare docker image and push to registry
 prepare_docker_image
 
-create_cluster "${KIND_IMAGE}" "$HOST_IPADDRESS" $KUBE_NEST_CLUSTER_NAME $HOST_CLUSTER_POD_CIDR $HOST_CLUSTER_SERVICE_CIDR false true
+create_cluster "${KIND_IMAGE}" "${HOST_IPADDRESS}" "${KUBE_NEST_CLUSTER_NAME}" "${CLUSTER_POD_CIDR}" "${CLUSTER_SERVICE_CIDR}" false true
 
-load_kubenetst_cluster_images $KUBE_NEST_CLUSTER_NAME
+load_kubenetst_cluster_images "${KUBE_NEST_CLUSTER_NAME}"
+
+

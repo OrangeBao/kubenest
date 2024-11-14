@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-agent
+  namespace: kosmos-system
+spec:
+  selector:
+    matchLabels:
+      app: node-agent-service
+  template:
+    metadata:
+      labels:
+        app: node-agent-service
+    spec:
+      hostPID: true # access host pid
+      hostIPC: true # access host ipc
+      hostNetwork: true # access host network
+      tolerations:
+        - operator: Exists # run on all nodes
+      initContainers:
+        - name: init-agent
+          image: ghcr.io/kosmos-io/node-agent:latest
+          securityContext:
+            privileged: true
+          env:
+            - name: WEB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: node-agent-secret
+                  key: username
+            - name: WEB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: node-agent-secret
+                  key: password
+          command: ["/bin/bash"]
+          args:
+            - "/app/init.sh"
+          volumeMounts:
+            - mountPath: /host-path
+              name: node-agent
+              readOnly: false
+            - mountPath: /host-systemd
+              name: systemd-path
+              readOnly: false
+      containers:
+        - name: install-agent
+          image: ghcr.io/kosmos-io/node-agent:latest
+          securityContext:
+            privileged: true # container privileged
+          command:
+            - nsenter
+            - --target
+            - "1"
+            - --mount
+            - --uts
+            - --ipc
+            - --net
+            - --pid
+            - --
+            - bash
+            - -l
+            - -c
+            - "/srv/node-agent/start.sh && sleep infinity"
+      volumes:
+        - name: node-agent
+          hostPath:
+            path: /srv/node-agent
+            type: DirectoryOrCreate
+        - name: systemd-path
+          hostPath:
+            path: /etc/systemd/system
+            type: DirectoryOrCreate

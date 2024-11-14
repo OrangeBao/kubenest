@@ -9,11 +9,9 @@ REGISTRY_PASSWORD?=""
 REGISTRY_SERVER_ADDRESS?=""
 KIND_IMAGE_TAG?="v1.25.3"
 
-MACOS_TARGETS := kubenest-operator \
-				 node-agent \
+MACOS_TARGETS := node-agent
 
-TARGETS := kubenest-operator \
-		   node-agent \
+TARGETS := node-agent
 
 
 # If GOOS is macOS, assign the value of MACOS_TARGETS to TARGETS
@@ -21,7 +19,7 @@ ifeq ($(GOOS), darwin)
 	TARGETS := $(MACOS_TARGETS)
 endif
 
-CTL_TARGETS := nodecli
+CTL_TARGETS := nodectl
 
 # Build code.
 #
@@ -51,8 +49,8 @@ $(CMD_TARGET):
 #
 # Example:
 #   make images
-#   make image-clusterlink-controller-manager
-#   make image-clusterlink-controller-manager GOARCH=arm64
+#   make image-kubenest-operator
+#   make image-kubenest-operator GOARCH=arm64
 IMAGE_TARGET=$(addprefix image-, $(TARGETS))
 .PHONY: $(IMAGE_TARGET)
 $(IMAGE_TARGET):
@@ -67,7 +65,7 @@ images: $(IMAGE_TARGET)
 #
 # Example
 #   make multi-platform-images
-#   make mp-image-clusterlink-controller-manager
+#   make mp-image-kubenest-operator
 MP_TARGET=$(addprefix mp-image-, $(TARGETS))
 .PHONY: $(MP_TARGET)
 $(MP_TARGET):
@@ -103,27 +101,18 @@ test:
 
 upload-images: images
 	@echo "push images to $(REGISTRY)"
-	docker push ${REGISTRY}/clusterlink-controller-manager:${VERSION}
-	docker push ${REGISTRY}/clusterlink-operator:${VERSION}
-	docker push ${REGISTRY}/clusterlink-agent:${VERSION}
-	docker push ${REGISTRY}/clusterlink-proxy:${VERSION}
-	docker push ${REGISTRY}/clusterlink-network-manager:${VERSION}
-	docker push ${REGISTRY}/clusterlink-floater:${VERSION}
-	docker push ${REGISTRY}/clusterlink-elector:${VERSION}
-	docker push ${REGISTRY}/clustertree-cluster-manager:${VERSION}
-	docker push ${REGISTRY}/virtual-cluster-operator:${VERSION}
 	docker push ${REGISTRY}/node-agent:${VERSION}
-	docker push ${REGISTRY}/scheduler:${VERSION}
+	docker push ${REGISTRY}/kubenest-operator:${VERSION}
 
 .PHONY: release
 release:
-	@make release-kosmosctl GOOS=linux GOARCH=amd64
-	@make release-kosmosctl GOOS=linux GOARCH=arm64
-	@make release-kosmosctl GOOS=darwin GOARCH=amd64
-	@make release-kosmosctl GOOS=darwin GOARCH=arm64
+	@make release-nodectl GOOS=linux GOARCH=amd64
+	@make release-nodectl GOOS=linux GOARCH=arm64
+	@make release-nodectl GOOS=darwin GOARCH=amd64
+	@make release-nodectl GOOS=darwin GOARCH=arm64
 
 release-nodecli:
-	hack/release.sh kosmosctl ${GOOS} ${GOARCH} ${VERSION}
+	hack/release.sh nodectl ${GOOS} ${GOARCH} ${VERSION}
 
 .PHONY: lint
 lint: golangci-lint
