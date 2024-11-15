@@ -3,48 +3,40 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
+
 
 # This script holds common bash variables and utility functions.
-
-KOSMOS_GO_PACKAGE="github.com/kosmos.io/kosmos"
+KOSMOS_GO_PACKAGE="github.com/kosmos.io/kubenest"
 
 REPO_ROOT="$(dirname "${BASH_SOURCE[0]}")/.."
 HOST_CLUSTER_NAME="cluster-host"
 
 MIN_Go_VERSION=go1.19.0
 
-CLUSTERLINK_TARGET_SOURCE=(
-  scheduler=cmd/clustertree/scheduler
-  clusterlink-proxy=cmd/clusterlink/proxy
-  clusterlink-operator=cmd/clusterlink/clusterlink-operator
-  clusterlink-elector=cmd/clusterlink/elector
-  clusterlink-agent=cmd/clusterlink/agent
-  clusterlink-floater=cmd/clusterlink/floater
-  clusterlink-network-manager=cmd/clusterlink/network-manager
-  clusterlink-controller-manager=cmd/clusterlink/controller-manager
-  clustertree-cluster-manager=cmd/clustertree/cluster-manager
-  virtual-cluster-operator=cmd/kubenest/operator
-  node-agent=cmd/kubenest/node-agent
+KUBENEST_TARGET_SOURCE=(
+  node-agent=cmd/node-agent
   kosmosctl=cmd/kosmosctl
 )
 
-#https://textkool.com/en/ascii-art-generator?hl=default&vl=default&font=DOS%20Rebel&text=KOSMOS
-KOSMOS_GREETING='
+#https://textkool.com/en/ascii-art-generator?hl=default&vl=default&font=DOS%20Rebel&text=KUBENEST
+KUBENEST_GREETING='
 --------------------------------------------------------------------------------------
- █████   ████    ███████     █████████  ██████   ██████    ███████     █████████
-░░███   ███░   ███░░░░░███  ███░░░░░███░░██████ ██████   ███░░░░░███  ███░░░░░███
- ░███  ███    ███     ░░███░███    ░░░  ░███░█████░███  ███     ░░███░███    ░░░
- ░███████    ░███      ░███░░█████████  ░███░░███ ░███ ░███      ░███░░█████████
- ░███░░███   ░███      ░███ ░░░░░░░░███ ░███ ░░░  ░███ ░███      ░███ ░░░░░░░░███
- ░███ ░░███  ░░███     ███  ███    ░███ ░███      ░███ ░░███     ███  ███    ░███
- █████ ░░████ ░░░███████░  ░░█████████  █████     █████ ░░░███████░  ░░█████████
-░░░░░   ░░░░    ░░░░░░░     ░░░░░░░░░  ░░░░░     ░░░░░    ░░░░░░░     ░░░░░░░░░
+ █████   ████ █████  █████ ███████████  ██████████ ██████   █████ ██████████  █████████  ███████████
+░░███   ███░ ░░███  ░░███ ░░███░░░░░███░░███░░░░░█░░██████ ░░███ ░░███░░░░░█ ███░░░░░███░█░░░███░░░█
+ ░███  ███    ░███   ░███  ░███    ░███ ░███  █ ░  ░███░███ ░███  ░███  █ ░ ░███    ░░░ ░   ░███  ░
+ ░███████     ░███   ░███  ░██████████  ░██████    ░███░░███░███  ░██████   ░░█████████     ░███
+ ░███░░███    ░███   ░███  ░███░░░░░███ ░███░░█    ░███ ░░██████  ░███░░█    ░░░░░░░░███    ░███
+ ░███ ░░███   ░███   ░███  ░███    ░███ ░███ ░   █ ░███  ░░█████  ░███ ░   █ ███    ░███    ░███
+ █████ ░░████ ░░████████   ███████████  ██████████ █████  ░░█████ ██████████░░█████████     █████
+░░░░░   ░░░░   ░░░░░░░░   ░░░░░░░░░░░  ░░░░░░░░░░ ░░░░░    ░░░░░ ░░░░░░░░░░  ░░░░░░░░░     ░░░░░
+
 ---------------------------------------------------------------------------------------
 '
 
 function util::get_target_source() {
   local target=$1
-  for s in "${CLUSTERLINK_TARGET_SOURCE[@]}"; do
+  for s in "${KUBENEST_TARGET_SOURCE[@]}"; do
     if [[ "$s" == ${target}=* ]]; then
       echo "${s##${target}=}"
       return
@@ -578,7 +570,7 @@ function util::get_macos_ipaddress() {
   if [[ $(go env GOOS) = "darwin" ]]; then
     tmp_ip=$(ipconfig getifaddr en0 || true)
     echo ""
-    echo " Detected that you are installing KOSMOS on macOS "
+    echo " Detected that you are installing KUBE_NEST on macOS "
     echo ""
     echo "It needs a Macintosh IP address to bind Kind Api Server Address,"
     echo "so you can access it from you macOS and the inner kubeconfig for cluster should use --inner-kubeconfig"

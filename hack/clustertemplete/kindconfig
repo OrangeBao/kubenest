@@ -12,6 +12,26 @@ nodes:
   - |
     kind: KubeletConfiguration
     cgroupDriver: cgroupfs
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    cgroupDriver: cgroupfs
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    cgroupDriver: cgroupfs
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    cgroupDriver: cgroupfs
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    cgroupDriver: cgroupfs
 #- role: worker
 networking:
   ipFamily: __IP_FAMILY__

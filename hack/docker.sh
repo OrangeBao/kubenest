@@ -29,7 +29,7 @@ set -o pipefail
 REPO_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 source "${REPO_ROOT}/hack/util.sh"
 
-REGISTRY=${REGISTRY:-"docker.io/clusterlink"}
+REGISTRY=${REGISTRY:-"docker.io/kubenest"}
 VERSION=${VERSION:="unknown"}
 DOCKER_BUILD_ARGS=${DOCKER_BUILD_ARGS:-}
 
@@ -38,9 +38,7 @@ function build_images() {
   local -r output_type=${OUTPUT_TYPE:-docker}
   local platforms="${BUILD_PLATFORMS:-"$(util:host_platform)"}"
   local dockerfile="Dockerfile"
-  if [[ "${target}" == "clusterlink-floater" ]]; then
-    dockerfile="floater.Dockerfile"
-  elif [[ "${target}" == "node-agent" ]]; then
+  if [[ "${target}" == "node-agent" ]]; then
     dockerfile="agent.Dockerfile"
   fi
   
@@ -66,6 +64,7 @@ function build_local_image() {
   docker build --build-arg BINARY="${target}" \
           ${DOCKER_BUILD_ARGS} \
           --tag "${image_name}" \
+          --load \
           --file "${REPO_ROOT}/cluster/images/${dockerfile}" \
           "${REPO_ROOT}/_output/bin/${platform}"
   set +x
