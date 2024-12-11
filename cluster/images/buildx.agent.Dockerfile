@@ -1,4 +1,4 @@
-FROM m.daocloud.io/docker.io/ubuntu AS release-env
+FROM docker.io/ubuntu AS release-env
 
 ARG BINARY
 ARG TARGETPLATFORM
@@ -17,7 +17,7 @@ RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.aliyun.com/ubu
     sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|' /etc/apt/sources.list
 
 RUN apt-get update && \
-    apt-get install -y rsync pwgen
+    apt-get install -y rsync pwgen sudo
 
 COPY ${TARGETPLATFORM}/${BINARY} /app
 

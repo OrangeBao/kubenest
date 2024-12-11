@@ -31,7 +31,7 @@ done
 KUBECONFIG_PATH=${KUBECONFIG_PATH:-"${HOME}/.kube"}
 export KUBECONFIG=$KUBECONFIG_PATH/"config"
 
-KIND_IMAGE=${KIND_IMAGE:-"m.daocloud.io/docker.io/kindest/node:v1.27.2"}
+KIND_IMAGE=${KIND_IMAGE:-"kindest/node:v1.27.2"}
 HOST_IPADDRESS=${1:-}
 KUBE_NEST_CLUSTER_NAME="kubenest-cluster"
 CLUSTER_POD_CIDR="10.233.64.0/18"
@@ -39,6 +39,7 @@ CLUSTER_SERVICE_CIDR="10.233.0.0/18"
 
 REPO_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 VERSION=${VERSION:-"latest"}
+source "$(dirname "${BASH_SOURCE[0]}")/install_kind_kubectl.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/install_kind_kubectl.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/util.sh"
@@ -58,8 +59,28 @@ export PATH=$PATH:"${REPO_ROOT}"/_output/bin/"$os"/"$arch"
 # prepare docker image and push to registry
 prepare_docker_image
 
+# create kind cluster
 create_cluster "${KIND_IMAGE}" "${HOST_IPADDRESS}" "${KUBE_NEST_CLUSTER_NAME}" "${CLUSTER_POD_CIDR}" "${CLUSTER_SERVICE_CIDR}" false true
 
+# load images to kind cluster
 load_kubenetst_cluster_images "${KUBE_NEST_CLUSTER_NAME}"
 
+# install sudo command in kind's node container
+# define node name
+node_names=(
+  "${KUBE_NEST_CLUSTER_NAME}-control-plane"
+  "${KUBE_NEST_CLUSTER_NAME}-worker"
+  "${KUBE_NEST_CLUSTER_NAME}-worker2"
+  "${KUBE_NEST_CLUSTER_NAME}-worker3"
+  "${KUBE_NEST_CLUSTER_NAME}-worker4"
+)
 
+# todo execute in parallel
+for node in "${node_names[@]}"
+do
+  echo "Updating and installing sudo on $node..."
+  docker exec -it "$node" bash -c "apt-get update && apt-get install -y sudo"
+done
+
+#step2. create node-agent daemonset in kubernetes
+create_node_agent_daemonset "${KUBE_NEST_CLUSTER_NAME}"
