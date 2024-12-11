@@ -19,7 +19,7 @@ ifeq ($(GOOS), darwin)
 	TARGETS := $(MACOS_TARGETS)
 endif
 
-CTL_TARGETS := nodectl
+#CTL_TARGETS := nestctl
 
 # Build code.
 #

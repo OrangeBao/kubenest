@@ -13,7 +13,7 @@ REUSE=${REUSE:-false}
 USE_LOCAL_ARTIFACTS=${USE_LOCAL_ARTIFACTS:-true}
 VERSION=${VERSION:-latest}
 
-CN_ZONE=${CN_ZONE:-true}
+CN_ZONE=${CN_ZONE:-false}
 source "$(dirname "${BASH_SOURCE[0]}")/util.sh"
 
 # default cert and key for node server https
@@ -122,18 +122,18 @@ function prepare_docker_image() {
 
   if [ "${CN_ZONE}" == false ]; then
     # 使用 Calico 的官方镜像源
-    local calico_prefix="calico"
+    local calico_prefix=""
     local operator_prefix="quay.io"
   else
     # 使用 DaoCloud 镜像源
-    calico_prefix="docker.m.daocloud.io"
+    calico_prefix="docker.m.daocloud.io/"
     operator_prefix="quay.m.daocloud.io"
   fi
 
   # 拉取和标记 Calico 镜像
   for image in "${calico_images[@]}"; do
-    docker pull "${calico_prefix}/${image}:${version}"
-    docker tag "${calico_prefix}/${image}:${version}" "${image}:${version}"
+    docker pull "${calico_prefix}${image}:${version}"
+    docker tag "${calico_prefix}${image}:${version}" "${image}:${version}"
   done
 
   # 拉取和标记 Operator 镜像
@@ -220,131 +220,32 @@ function create_cluster() {
   echo "all node ready"
 }
 
-function join_cluster() {
-  local host_cluster=$1
-  local member_cluster=$2
-  local kubeconfig_path="${ROOT}/environments/${member_cluster}/kubeconfig"
-  local hostConfig_path="${ROOT}/environments/${host_cluster}/kubeconfig"
-  local base64_kubeconfig=$(util::get_base64_kubeconfig <"$kubeconfig_path")
-  echo " base64 kubeconfig successfully converted: $base64_kubeconfig "
-
-  local common_metadata=""
-  if [ "$host_cluster" == "$member_cluster" ]; then
-    common_metadata="annotations:
-    kosmos.io/cluster-role: root"
-  fi
-
-  cat <<EOF | kubectl --kubeconfig "${hostConfig_path}" apply -f -
-apiVersion: kosmos.io/v1alpha1
-kind: Cluster
-metadata:
-  $common_metadata
-  name: ${member_cluster}
-spec:
-  imageRepository: "ghcr.io/kosmos-io"
-  kubeconfig: "$base64_kubeconfig"
-  clusterLinkOptions:
-    cni: "calico"
-    ipFamily: ipv4
-    defaultNICName: eth0
-    networkType: "gateway"
-  clusterTreeOptions:
-    enable: true
-EOF
-  kubectl --kubeconfig "${hostConfig_path}" apply -f "$ROOT"/deploy/clusterlink-namespace.yml
-  kubectl --kubeconfig "${hostConfig_path}" apply -f "$ROOT"/deploy/clusterlink-datapanel-rbac.yml
-}
-
-function join_cluster_by_ctl() {
-  local host_cluster=$1
-  local member_cluster=$2
-  local hostClusterDir=$3
-  local memberClusterDir=$4
-  "${ROOT}"/_output/bin/"$os"/"$arch"/kosmosctl join cluster --name "$member_cluster" --host-kubeconfig "$hostClusterDir/kubeconfig" --kubeconfig "$memberClusterDir/kubeconfig" --inner-kubeconfig "$memberClusterDir/kubeconfig-nodeIp" --enable-all --version ${VERSION}
-}
-
-function addTaint() {
-  local host_cluster=$1
-  local member_cluster=$2
-  leafnode="kosmos-${member_cluster}"
-  HOST_CLUSTER_DIR="${ROOT}/environments/${host_cluster}"
-
-  sleep 100 && kubectl --kubeconfig $HOST_CLUSTER_DIR/kubeconfig get node -owide
-  kubectl --kubeconfig $HOST_CLUSTER_DIR/kubeconfig taint nodes $leafnode test-node/e2e=leafnode:NoSchedule
-}
-
-function deploy_cluster_by_ctl() {
-  local -r clustername=$1
-  local -r kubeconfig=$2
-  local -r innerKubeconfig=$3
-  load_cluster_images "$clustername"
-  CLUSTER_DIR="${ROOT}/environments/${clustername}"
-
-  "${ROOT}"/_output/bin/"$os"/"$arch"/kosmosctl install --version ${VERSION} --kubeconfig "${kubeconfig}" --inner-kubeconfig "${innerKubeconfig}"
-
-  util::wait_for_condition "kosmos ${clustername} clustertree are ready" \
-    "kubectl --kubeconfig $CLUSTER_DIR/kubeconfig -n kosmos-system get deploy clustertree-cluster-manager -o jsonpath='{.status.replicas}{\" \"}{.status.readyReplicas}{\"\n\"}' | awk '{if (\$1 == \$2 && \$1 > 0) exit 0; else exit 1}'" \
-    300
-}
-
-function deploy_cluster() {
-  local -r clustername=$1
-  CLUSTER_DIR="${ROOT}/environments/${clustername}"
-
-  load_cluster_images "$clustername"
-
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "$ROOT"/deploy/clusterlink-namespace.yml
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "$ROOT"/deploy/kosmos-rbac.yml
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "$ROOT"/deploy/crds
-  util::wait_for_crd clusternodes.kosmos.io clusters.kosmos.io clusterdistributionpolicies.kosmos.io distributionpolicies.kosmos.io
-
-  sed -e "s|__VERSION__|$VERSION|g" -e "w ${ROOT}/environments/clusterlink-network-manager.yml" "$ROOT"/deploy/clusterlink-network-manager.yml
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "${ROOT}/environments/clusterlink-network-manager.yml"
-
-  echo "cluster $clustername deploy clusterlink success"
-
-  sed -e "s|__VERSION__|$VERSION|g" -e "s|__CERT__|$CERT|g" -e "s|__KEY__|$KEY|g" -e "w ${ROOT}/environments/clustertree-cluster-manager.yml" "$ROOT"/deploy/clustertree-cluster-manager.yml
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "${ROOT}/environments/clustertree-cluster-manager.yml"
-
-  echo "cluster $clustername deploy clustertree success"
-
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig -n kosmos-system delete secret controlpanel-config || true
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig -n kosmos-system create secret generic controlpanel-config --from-file=kubeconfig="${ROOT}/environments/cluster-host/kubeconfig"
-  sed -e "s|__VERSION__|$VERSION|g" -e "w ${ROOT}/environments/clusterlink-operator.yml" "$ROOT"/deploy/clusterlink-operator.yml
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "${ROOT}/environments/clusterlink-operator.yml"
-
-  echo "cluster $clustername deploy clusterlink-operator success"
-
-  sed -e "s|__VERSION__|$VERSION|g" -e "w ${ROOT}/environments/kosmos-scheduler.yml" "$ROOT"/deploy/scheduler/deployment.yaml
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "${ROOT}/environments/kosmos-scheduler.yml"
-  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "$ROOT"/deploy/scheduler/rbac.yaml
-
-  util::wait_for_condition "kosmos scheduler are ready" \
-    "kubectl --kubeconfig $CLUSTER_DIR/kubeconfig -n kosmos-system get deploy kosmos-scheduler -o jsonpath='{.status.replicas}{\" \"}{.status.readyReplicas}{\"\n\"}' | awk '{if (\$1 == \$2 && \$1 > 0) exit 0; else exit 1}'" \
-    300
-  echo "cluster $clustername deploy kosmos-scheduler success"
-
-  docker exec ${clustername}-control-plane /bin/sh -c "mv /etc/kubernetes/manifests/kube-scheduler.yaml /etc/kubernetes"
-}
-
-function load_cluster_images() {
-  local -r clustername=$1
-
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/clusterlink-network-manager:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/clusterlink-controller-manager:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/clusterlink-elector:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/clusterlink-operator:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/clusterlink-agent:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/clusterlink-proxy:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/clustertree-cluster-manager:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/scheduler:"${VERSION}"
-}
-
 function load_kubenetst_cluster_images() {
   local -r clustername=$1
 
   #  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/virtual-cluster-operator:"${VERSION}"
   kind load docker-image -n "$clustername" ghcr.io/kosmos-io/node-agent:"${VERSION}"
+}
+
+function create_node_agent_daemonset() {
+  # insure htpasswd
+  util::cmd_must_exist openssl
+  # generate username and password
+  username=$(openssl rand -hex 5)
+  password=$(openssl rand -base64 12)
+  echo "node-agent生成的用户名: $username"
+  echo "node-agent生成的密码: $password"
+  # Base64 encode the username and password
+  encoded_username=$(echo -n "$username" | base64)
+  encoded_password=$(echo -n "$password" | base64)
+
+  sed -e "s|^  username:.*|  username: ${encoded_username}|g" \
+    -e "s|^  password:.*|  password: ${encoded_password}|g" \
+    -e "w ${ROOT}/environments/node-agent.yaml" "$ROOT"/deploy/node-agent.yaml
+
+  local -r clustername=$1
+  CLUSTER_DIR="${ROOT}/environments/${clustername}"
+  kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "${ROOT}/environments/node-agent.yaml"
 }
 
 function delete_cluster() {
