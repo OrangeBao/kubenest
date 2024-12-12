@@ -7,26 +7,26 @@ set -o pipefail
 VERSION=${VERSION:-"latest"}
 
 function usage() {
-    echo "Usage:"
-    echo "    hack/local-down-kosmos_kubenest.sh [-k] [-h]"
-    echo "Args:"
-    echo "    k: keep the local images"
-    echo "    h: print help information"
+  echo "Usage:"
+  echo "    hack/local-down-kosmos_kubenest.sh [-k] [-h]"
+  echo "Args:"
+  echo "    k: keep the local images"
+  echo "    h: print help information"
 }
 
 keep_images="false"
 while getopts 'kh' OPT; do
-    case $OPT in
-        k) keep_images="true";;
-        h)
-          usage
-          exit 0
-          ;;
-        ?)
-          usage
-          exit 1
-          ;;
-    esac
+  case $OPT in
+  k) keep_images="true" ;;
+  h)
+    usage
+    exit 0
+    ;;
+  ?)
+    usage
+    exit 1
+    ;;
+  esac
 done
 
 KUBE_NEST_CLUSTER_NAME=${KUBE_NEST_CLUSTER_NAME:-"kubenest-cluster"}
@@ -47,15 +47,25 @@ delete_cluster "${KUBE_NEST_CLUSTER_CONFIG}" "${KUBE_NEST_CLUSTER_CONFIG}"
 
 echo "Remove cluster configs successfully."
 
+docker stop kubenest-registry || true
+docker rm kubenest-registry || true
+docker_config="/etc/docker/daemon.json"
+ip link delete veth-host || true
+rm $docker_config || true
+cp "${docker_config}.bak" "$docker_config" || true
+systemctl daemon-reload
+systemctl restart docker
+echo "Remove docker registry and configs successfully."
+
 #step3. remove docker images
 echo -e "\nStart removing images"
 registry="ghcr.io/kosmos-io"
 images=(
-"${registry}/virtual-cluster-operator:${VERSION}"
-"${registry}/node-agent:${VERSION}"
+  "${registry}/virtual-cluster-operator:${VERSION}"
+  "${registry}/node-agent:${VERSION}"
 )
-if [[ "${keep_images}" == "false" ]] ; then
-  for ((i=0;i<${#images[*]};i++)); do
+if [[ "${keep_images}" == "false" ]]; then
+  for ((i = 0; i < ${#images[*]}; i++)); do
     docker rmi ${images[i]} || true
   done
   echo "Remove images successfully."

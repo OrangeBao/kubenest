@@ -6,6 +6,10 @@ containerdConfigPatches:
         SystemdCgroup = false
   [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.test-handler.options]
         SystemdCgroup = false
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."__REGISTRY_DOMAIN__"]
+        endpoint = ["__REGISTRY__"]
+  [plugins."io.containerd.grpc.v1.cri".registry.configs."__REGISTRY_DOMAIN__".tls]
+        insecure_skip_verify = true
 nodes:
 - role: control-plane
   kubeadmConfigPatches:

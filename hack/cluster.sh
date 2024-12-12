@@ -12,6 +12,7 @@ REUSE=${REUSE:-false}
 # Set to false in a restricted internet environment.
 USE_LOCAL_ARTIFACTS=${USE_LOCAL_ARTIFACTS:-true}
 VERSION=${VERSION:-latest}
+REGISTRY=${REGISTRY:-192.168.200.1:5000}
 
 CN_ZONE=${CN_ZONE:-false}
 source "$(dirname "${BASH_SOURCE[0]}")/util.sh"
@@ -104,6 +105,56 @@ function prepare_e2e_cluster() {
     300
 }
 
+function create_local_registry() {
+  container_name="kubenest-registry"
+  container_id=$(docker ps -q -f name=$container_name)
+
+  if [ -z "$container_id" ]; then
+    echo "$container_name 本地不存在"
+    if [ "${CN_ZONE}" == false ]; then
+      local registry_image="registry:2.7.1"
+    else
+      registry_image="dockem.daocloud.io/library/registry:2.7.1"
+    fi
+    # 创建虚拟网卡
+    ip link add veth-host type veth peer name veth-docker
+    ip addr add 192.168.200.1/24 dev veth-host
+    ip link set veth-host up
+
+    # 创建镜像仓库
+    docker run --network host --restart=always -d --name kubenest-registry "${registry_image}"
+    # Docker 配置文件路径
+    docker_config="/etc/docker/daemon.json"
+
+    # 检查并创建 Docker 配置文件
+    if [ ! -f "$docker_config" ]; then
+      echo '{}' >"$docker_config"
+    fi
+
+    # 备份原始文件
+    cp "$docker_config" "${docker_config}.bak"
+
+    # 更新 insecure-registries 配置
+    if jq -e '. | has("insecure-registries")' "$docker_config" >/dev/null; then
+      # 如果 insecure-registries 存在，添加新的 registry
+      jq ".\"insecure-registries\" += [\"$REGISTRY\"]" "$docker_config" >"${docker_config}.tmp"
+    else
+      # 如果 insecure-registries 不存在，创建配置
+      jq ". + {\"insecure-registries\": [\"$REGISTRY\"]}" "$docker_config" >"${docker_config}.tmp"
+    fi
+
+    # 替换原始配置文件
+    mv "${docker_config}.tmp" "$docker_config"
+
+    # 重启 Docker 服务以应用更改
+    systemctl restart docker
+
+    echo "已将 ${REGISTRY} 添加到 Docker 的 insecure-registries 配置中。"
+  else
+    echo "kubenest-registry 已经在本地存在"
+  fi
+}
+
 function prepare_docker_image() {
   # 定义 Calico 镜像的基础名称和版本
   local calico_images=(
@@ -117,28 +168,40 @@ function prepare_docker_image() {
     "calico/typha"
   )
   local operator_image="tigera/operator"
-  local version="v3.25.0"
+  local calico_version="v3.25.0"
   local operator_version="v1.29.0"
 
   if [ "${CN_ZONE}" == false ]; then
     # 使用 Calico 的官方镜像源
-    local calico_prefix=""
+    local docker_prefix=""
     local operator_prefix="quay.io"
   else
     # 使用 DaoCloud 镜像源
-    calico_prefix="docker.m.daocloud.io/"
+    docker_prefix="docker.m.daocloud.io/"
     operator_prefix="quay.m.daocloud.io"
   fi
 
   # 拉取和标记 Calico 镜像
   for image in "${calico_images[@]}"; do
-    docker pull "${calico_prefix}${image}:${version}"
-    docker tag "${calico_prefix}${image}:${version}" "${image}:${version}"
+    docker pull "${docker_prefix}${image}:${calico_version}"
   done
 
   # 拉取和标记 Operator 镜像
   docker pull "${operator_prefix}/${operator_image}:${operator_version}"
-  docker tag "${operator_prefix}/${operator_image}:${operator_version}" "${operator_image}:${operator_version}"
+
+  # 镜像tag及推送
+  for image in "${calico_images[@]}"; do
+    docker tag "${docker_prefix}${image}:${calico_version}" "${REGISTRY}/${image}:${calico_version}"
+    docker push "${REGISTRY}/${image}:${calico_version}"
+  done
+
+  docker tag "${operator_prefix}/${operator_image}:${operator_version}" "${REGISTRY}"/${operator_image}:${operator_version}
+  docker push "${REGISTRY}"/${operator_image}:${operator_version}
+}
+
+function prepare_kubenest_image() {
+  docker tag ghcr.io/kosmos-io/node-agent:"${VERSION}" "${REGISTRY}"/kosmos-io/node-agent:"${VERSION}"
+  docker push "${REGISTRY}"/kosmos-io/node-agent:"${VERSION}"
 }
 
 #clustername podcidr servicecidr
@@ -171,8 +234,11 @@ function create_cluster() {
     sed -e "s|__POD_CIDR__|$podcidr|g" -e "s|__SERVICE_CIDR__|$servicecidr|g" -e "s|__IP_FAMILY__|$ipFamily|g" -e "w ${CLUSTER_DIR}/${KIND_CONFIG_NAME}" "${CURRENT}/clustertemplete/${KIND_CONFIG_NAME}"
     sed -e "s|__POD_CIDR__|$podcidr|g" -e "s|__SERVICE_CIDR__|$servicecidr|g" -e "w ${CLUSTER_DIR}/calicoconfig" "${CURRENT}/clustertemplete/calicoconfig"
   fi
-
-  sed -i'' -e "s/__HOST_IPADDRESS__/${hostIpAddress}/g" ${CLUSTER_DIR}/${KIND_CONFIG_NAME}
+  REGISTRY_URL="http://${REGISTRY}"
+  # use "#" for fix http url error
+  echo "REGISTRY is $REGISTRY"
+  echo "REGISTRY_URL is $REGISTRY_URL"
+  sed -i'' -e "s/__HOST_IPADDRESS__/${hostIpAddress}/g" -e "s#__REGISTRY__#${REGISTRY_URL}#g" -e "s#__REGISTRY_DOMAIN__#${REGISTRY}#g" "${CLUSTER_DIR}"/${KIND_CONFIG_NAME}
   if [[ "$(kind get clusters | grep -c "${clustername}")" -eq 1 && "${REUSE}" = true ]]; then
     echo "cluster ${clustername} exist reuse it"
   else
@@ -181,30 +247,24 @@ function create_cluster() {
     kind create cluster --name "${clustername}" --config "${CLUSTER_DIR}/${KIND_CONFIG_NAME}" --image "${KIND_IMAGE}"
   fi
 
-  # load docker image to kind cluster
-  kind load docker-image calico/apiserver:v3.25.0 --name $clustername
-  kind load docker-image calico/cni:v3.25.0 --name $clustername
-  kind load docker-image calico/csi:v3.25.0 --name $clustername
-  kind load docker-image calico/kube-controllers:v3.25.0 --name $clustername
-  kind load docker-image calico/node-driver-registrar:v3.25.0 --name $clustername
-  kind load docker-image calico/node:v3.25.0 --name $clustername
-  kind load docker-image calico/pod2daemon-flexvol:v3.25.0 --name $clustername
-  kind load docker-image calico/typha:v3.25.0 --name $clustername
-  kind load docker-image quay.io/tigera/operator:v1.29.0 --name $clustername
-
   kubectl --kubeconfig $CLUSTER_DIR/kubeconfig taint nodes --all node-role.kubernetes.io/control-plane- || true
 
   # prepare external kubeconfig
   kind get kubeconfig --name "${clustername}" >"${CLUSTER_DIR}/kubeconfig"
   dockerip=$(docker inspect "${clustername}-control-plane" --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}")
   echo "get docker ip from pod $dockerip"
-  docker exec ${clustername}-control-plane /bin/sh -c "cat /etc/kubernetes/admin.conf" | sed -e "s|${clustername}-control-plane|$dockerip|g" -e "/certificate-authority-data:/d" -e "5s/^/    insecure-skip-tls-verify: true\n/" -e "w ${CLUSTER_DIR}/kubeconfig-nodeIp"
+  docker exec "${clustername}"-control-plane /bin/sh -c "cat /etc/kubernetes/admin.conf" | sed -e "s|${clustername}-control-plane|$dockerip|g" -e "/certificate-authority-data:/d" -e "5s/^/    insecure-skip-tls-verify: true\n/" -e "w ${CLUSTER_DIR}/kubeconfig-nodeIp"
 
   # 本地测试环境使用本地制品库，github ci 环境直接使用公网的镜像和yaml
   if [ "${USE_LOCAL_ARTIFACTS}" == true ]; then
-    kubectl --kubeconfig $CLUSTER_DIR/kubeconfig create -f "${CURRENT}/artifacts/calicooperator/tigera-operator.yaml" || $("${REUSE}" -eq "true")
+    sed -e "s|{{ .REGISTRY }}|${REGISTRY}|g" \
+      -e "w ${ROOT}/environments/tigera-operator.yaml" "$ROOT"/hack/artifacts/calicooperator/tigera-operator.yaml
+    sed -e "s|{{ .REGISTRY }}|${REGISTRY}|g" \
+      -e "w ${ROOT}/environments/installation.yaml" "$ROOT"/hack/artifacts/calicooperator/installation.yaml
+    kubectl --kubeconfig "$CLUSTER_DIR"/kubeconfig create -f "${ROOT}"/environments/tigera-operator.yaml || $("${REUSE}" -eq "true")
+    kubectl --kubeconfig "$CLUSTER_DIR"/kubeconfig create -f "${ROOT}"/environments/installation.yaml || $("${REUSE}" -eq "true")
   else
-    kubectl --kubeconfig $CLUSTER_DIR/kubeconfig create -f "https://raw.githubusercontent.com/projectcalico/calico/master/manifests/tigera-operator.yaml" || $("${REUSE}" -eq "true")
+    kubectl --kubeconfig "$CLUSTER_DIR"/kubeconfig create -f "https://raw.githubusercontent.com/projectcalico/calico/master/manifests/tigera-operator.yaml" || $("${REUSE}" -eq "true")
   fi
 
   kind export kubeconfig --name "$clustername"
@@ -220,14 +280,8 @@ function create_cluster() {
   echo "all node ready"
 }
 
-function load_kubenetst_cluster_images() {
-  local -r clustername=$1
-
-  #  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/virtual-cluster-operator:"${VERSION}"
-  kind load docker-image -n "$clustername" ghcr.io/kosmos-io/node-agent:"${VERSION}"
-}
-
 function create_node_agent_daemonset() {
+  local -r clustername=$1
   # insure htpasswd
   util::cmd_must_exist openssl
   # generate username and password
@@ -239,11 +293,11 @@ function create_node_agent_daemonset() {
   encoded_username=$(echo -n "$username" | base64)
   encoded_password=$(echo -n "$password" | base64)
 
-  sed -e "s|^  username:.*|  username: ${encoded_username}|g" \
-    -e "s|^  password:.*|  password: ${encoded_password}|g" \
+  sed -e "s|{{ .USERNAME }}|${encoded_username}|g" \
+    -e "s|{{ .PASSWORD }}|${encoded_password}|g" \
+    -e "s|{{ .REGISTRY }}|${REGISTRY}|g" \
     -e "w ${ROOT}/environments/node-agent.yaml" "$ROOT"/deploy/node-agent.yaml
 
-  local -r clustername=$1
   CLUSTER_DIR="${ROOT}/environments/${clustername}"
   kubectl --kubeconfig $CLUSTER_DIR/kubeconfig apply -f "${ROOT}/environments/node-agent.yaml"
 }
