@@ -55,7 +55,7 @@ spec:
         - operator: Exists # run on all nodes
       initContainers:
         - name: init-agent
-          image: ghcr.io/kosmos-io/node-agent:latest
+          image: {{ .REGISTRY }}/kosmos-io/node-agent:latest
           securityContext:
             privileged: true
           env:
@@ -81,7 +81,7 @@ spec:
               readOnly: false
       containers:
         - name: install-agent
-          image: ghcr.io/kosmos-io/node-agent:latest
+          image: {{ .REGISTRY }}/kosmos-io/node-agent:latest
           securityContext:
             privileged: true # container privileged
           command:
